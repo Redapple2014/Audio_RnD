@@ -12,71 +12,76 @@ using System.Linq;
 using System.Threading.Tasks;
 using DG.Tweening;
 using UnityEngine.Audio;
+using System.Runtime.Serialization.Formatters.Binary;
 
-//[RequireComponent(typeof(AudioSource))]
 public class SoundManager : MonoBehaviour
 {
-
-    public static SoundManager Instance;
-    DirectoryInfo MusicFolder;
-
-    string myPath;
+    private static SoundManager instance;
+    private DirectoryInfo MusicFolder;
+    private string myPath;
     private GameObject[] listings;
-    private int index = 0;
-    public GameObject listingPrefab;
-    public Transform listingsParent;
-    public int songNumber = 0;
-    public TextMeshProUGUI btn;
-
-    public GameObject Play_Button;
-    public GameObject Pause_Button;
-    public GameObject Next_Button;
-    public GameObject Previous_Button;
-    public GameObject Mute_Button;
-    public GameObject Unmute_Button;
-    public GameObject Loop_Button;
-    public GameObject Unloop_Button;
-    public GameObject playMusic_Button;
-    public GameObject Middle_Control_Panel;
-    public GameObject NoMiddle_panel;
-    public GameObject Panel;
-    public GameObject leftPanel;
-    public List<AudioClip> audioClips = new List<AudioClip>();
-    public int currentTrack = 0;
-    public Text songName;
-    public Text timeText;
-    int fullLength, playTime, sec, min;
-    public Slider progressBar, Volume_Slider;
-    public bool isPaused = false;
+    private int index = 0;   
+    private int songNumber = 0;
+    private int currentTrack = 0;
+    private AudioSource audioSource;
     private List<string> newFiles = new List<string>();
+    private List<AudioClip> audioClips = new List<AudioClip>();
+    private int fullLength, playTime, sec, min;
+    private ResonanceAudioSource resonanceAudio;
+    private bool isEqualizerOn = false;
+    private bool isSurroundOn = false;
+    private List<string> _excludedDirectories = new List<string>() { "Android", "." };
+    private List<string> all_Directories = new List<string>();
+    private List<FolderItemSelection> folders = new List<FolderItemSelection>();
 
+    [SerializeField] private GameObject listingPrefab;
+    [SerializeField] private Transform listingsParent;
+    [SerializeField] private GameObject Play_Button;
+    [SerializeField] private GameObject Pause_Button;
+    [SerializeField] private GameObject Next_Button;
+    [SerializeField] private GameObject Previous_Button;
+    [SerializeField] private GameObject Mute_Button;
+    [SerializeField] private GameObject Unmute_Button;
+    [SerializeField] private GameObject Loop_Button;
+    [SerializeField] private GameObject Unloop_Button;
+    [SerializeField] private GameObject playMusic_Button;
+    [SerializeField] private GameObject Middle_Control_Panel;
+    [SerializeField] private GameObject NoMiddle_panel;
+    [SerializeField] private GameObject Panel;
+    [SerializeField] private GameObject leftPanel;
+    [SerializeField] private Text songName;
+    [SerializeField] private Text timeText;
+    [SerializeField] private Slider progressBar, Volume_Slider;
+    [SerializeField] private bool isPaused = false;  
     [SerializeField] private GameObject folderItemPrefab;
     [SerializeField] private Transform folderItemHolder;
     [SerializeField] private Button ok_Button;
     [SerializeField] private Button exitBtn_SelectionPopup;
     [SerializeField] private GameObject folderSelectionPopup;
     [SerializeField] private GameObject loadingPopup;
-    [SerializeField] private RectTransform equalizerMenu;
-
-    private AudioSource audioSource;
+    [SerializeField] private RectTransform equalizerMenu;   
     [SerializeField] private AudioSource surroundSoundAC;
-    private ResonanceAudioSource resonanceAudio;
-    private bool isEqualizerOn = false;
-    public bool isSurroundOn = false;
     [SerializeField] private Animator animator;
     [SerializeField] private AudioReverbZone reverbZone;
+    [SerializeField] private PooledListView pooledListView;
+    [SerializeField] private ListViewItemPool listViewItemPool;
 
+    public static SoundManager Instance => instance;
+    public bool IsSurroundOn => isSurroundOn;
 
-    // Use this for initialization
-    void Awake()
+    private void Awake()
     {
-        
-        Instance = this;
-        // audioSource = GetComponent<AudioSource>();
+        if (instance == null)
+        {
+            instance = this;
+        }
+        else if(instance != this)
+        {
+            Destroy(gameObject);
+        }       
 #if UNITY_ANDROID
         string[] dataPath = (Application.persistentDataPath.Replace("Android", "")).Split(new string[] { "//" }, System.StringSplitOptions.None);   //"/storage/sdcard0/Music"
-        Debug.Log(dataPath + "persistant data path : " + dataPath[0]);
-        //  string t_Path = Path.Combine(dataPath[0], "Songs"); Its working no need to try in spesific folder
+        Debug.Log(dataPath + "persistant data path : " + dataPath[0]);    
         myPath = dataPath[0]; //  storage/emulated/0
         Debug.Log("Source Root Path: " + dataPath[0]);
 
@@ -86,24 +91,37 @@ public class SoundManager : MonoBehaviour
 
 #elif Unity_Editor
 		    myPath = "Builds/Music";
-#endif
-        MusicFolder = new DirectoryInfo(myPath);
-        ok_Button.onClick.AddListener(() => { CreateMusicLibrary(); loadingPopup.SetActive(true); folderSelectionPopup.SetActive(false); });
-        exitBtn_SelectionPopup.onClick.AddListener(() => { folderSelectionPopup.SetActive(false); });
+#endif       
         resonanceAudio = surroundSoundAC.gameObject.GetComponent<ResonanceAudioSource>();
         SetUpAudioPlayeForNomal();
-
     }
+
     private void OnEnable()
     {
+        ok_Button.onClick.AddListener(OnClickOkButton);
+        exitBtn_SelectionPopup.onClick.AddListener(OnClickExitToFolder);
         ButtonSelectionSound.onAudioSelected += SetUpAudioPlayerAsModeSelected;
-
-
     }
+
     private void OnDisable()
     {
+        ok_Button.onClick.RemoveListener(OnClickOkButton);
+        exitBtn_SelectionPopup.onClick.RemoveListener(OnClickExitToFolder);
         ButtonSelectionSound.onAudioSelected -= SetUpAudioPlayerAsModeSelected;
     }
+
+    private void OnClickOkButton()
+    {
+        loadingPopup.SetActive(true);
+        folderSelectionPopup.SetActive(false);
+        CreateMusicLibrary();      
+    }
+
+    private void OnClickExitToFolder()
+    {
+        folderSelectionPopup.SetActive(false);
+    }
+
     private void SetUpAudioPlayerAsModeSelected(AudioMixerGroup _audioMixerGroup, MusicType type)
     {
         switch (type)
@@ -121,6 +139,7 @@ public class SoundManager : MonoBehaviour
         }
         audioSource.outputAudioMixerGroup = _audioMixerGroup;
     }
+
     private void SetUpAudioForSurround()
     {
         isSurroundOn = true;
@@ -150,7 +169,7 @@ public class SoundManager : MonoBehaviour
                 audioSource.spatialize = false;
                 audioSource.spatializePostEffects = false;
                 audioSource.bypassReverbZones = false;
-              //  resonanceAudio.bypassRoomEffects = true;
+                //resonanceAudio.bypassRoomEffects = true;
                 audioSource.dopplerLevel = 0;
                 audioSource.minDistance = 1;
                 reverbZone.enabled = false;
@@ -162,7 +181,6 @@ public class SoundManager : MonoBehaviour
 
     public void Start()
     {
-
         Pause_Button.SetActive(false);
         Play_Button.SetActive(true);
 
@@ -181,74 +199,60 @@ public class SoundManager : MonoBehaviour
 
         loadingPopup.SetActive(true);
         StartCoroutine(StartLoading());
-        //  UpdateMusicLibrary();
-
-
         Volume_Slider.value = 0.5f;
-
     }
     private IEnumerator StartLoading()
     {
         yield return new WaitForSeconds(2.0f);
         loadingPopup.SetActive(false);
-        folderSelectionPopup.SetActive(true);
-        InitialiseMusicFolders();
+        if (string.IsNullOrEmpty(PlayerPrefs.GetString("MusicFolderPath")))
+        {
+            Debug.Log("FirstTime");
+            folderSelectionPopup.SetActive(true);
+            InitialiseMusicFolders();           
+        }
+        else
+        {
+            loadingPopup.SetActive(true);
+            string musicFolderFilePath = PlayerPrefs.GetString("MusicFolderPath");
+            if(File.Exists(musicFolderFilePath))
+            {
+                FileStream fileStream = new FileStream(musicFolderFilePath, FileMode.Open, FileAccess.Read);
+                BinaryFormatter binaryFormatter = new BinaryFormatter();
+                List<string> musicFiles = (List<string>)binaryFormatter.Deserialize(fileStream);
+                UpdateMusicLibrary(musicFiles);
+            }
+        }
     }
-
-    /* public MusicType e_MusicType;
-     public void ChangeAudioEffect(AudioMixerGroup _audioMixerGroup, MusicType _musicType)
-     {
-         switch (_musicType)
-         {
-             case MusicType.Normal:
-                 {
-                     SetUpAudioPlayeForNomal();
-                     audioSource.outputAudioMixerGroup = _audioMixerGroup;
-                     break;
-                 }
-             case MusicType.Surround:
-             {
-                     SetUpAudioPlayeForSurround();
-                     audioSource.outputAudioMixerGroup = _audioMixerGroup;
-                     break;
-             }
-         }
-
-     }*/
+   
     private void MoveAnimation(RectTransform rect, float lastPos, float time)
     {
         rect.DOAnchorPosX(lastPos, time).SetEase(Ease.OutBounce);
     }
+
     public void changeEqualizerState()
     {
-
         if (!isEqualizerOn)
-        {
-            //  equalizerMenu.SetActive(true);
+        {            
             MoveAnimation(equalizerMenu, 0, 1);
             isEqualizerOn = true;
-
         }
         else
         {
-            //  equalizerMenu.SetActive(false);
             MoveAnimation(equalizerMenu, 100, 1);
             isEqualizerOn = false;
         }
     }
 
-
-    async Task<AudioClip> LoadClip(string path)
+    private async Task<AudioClip> LoadClip(string path)
     {
         AudioClip clip = null;
         using (UnityWebRequest uwr = UnityWebRequestMultimedia.GetAudioClip(path, AudioType.MPEG))
         {
             uwr.SendWebRequest();
-
-            // wrap tasks in try/catch, otherwise it'll fail silently
             try
             {
-                while (!uwr.isDone) await Task.Delay(1);
+                while (!uwr.isDone) await Task.Yield();
 
                 if (uwr.isNetworkError || uwr.isHttpError) Debug.Log($"{uwr.error}");
                 else
@@ -261,17 +265,14 @@ public class SoundManager : MonoBehaviour
                 Debug.Log($"{err.Message}, {err.StackTrace}");
             }
         }
-
         return clip;
     }
 
-    private List<string> _excludedDirectories = new List<string>() { "Android", "." };
-    List<string> all_Directories = new List<string>();
-    private List<FolderItemSelection> folders = new List<FolderItemSelection>();
-    static bool isExcluded(List<string> exludedDirList, string target)
+    private bool isExcluded(List<string> exludedDirList, string target)
     {
         return exludedDirList.Any(d => new DirectoryInfo(target).Name.Contains(d));
     }
+
     private void InitialiseMusicFolders()
     {
         DirectoryInfo rootDirectoryInfo = new DirectoryInfo(myPath);
@@ -284,68 +285,64 @@ public class SoundManager : MonoBehaviour
             folders.Add(folderSelection);
             folderSelection.FullDirectoryName = x.FullName;
             folderSelection.FolderName.text = x.Name;
-
         });
-
     }
+
+    public void AddMusicDirectory(string directory)
+    {
+        all_Directories.Add(directory);
+    }
+
+    public void RemoveMusicDirectory(string directory)
+    {
+        if (all_Directories.Contains(directory))
+        {
+            all_Directories.Remove(directory);
+        }
+    }
+
     private void CreateMusicLibrary()
     {
-        folders.ForEach(x =>
-        {
-            if (!string.IsNullOrEmpty(x.GetFolderName()))
-            {
-                all_Directories.Add(x.FullDirectoryName);
-            }
-        });
-        UpdateMusicLibrary();
-    }
-    private async void UpdateMusicLibrary()
-    {
-        // string[] root_Directories = Directory.GetDirectories(myPath);
-        //     List<string> filteredDirs = Directory.GetDirectories(myPath).Where(d => !isExcluded(_excludedDirectories, d)).ToList();
-        //  Debug.Log("directory name filtered" + filteredDirs);
-        //  all_Directories = filteredDirs;
-        Debug.Log("all directories: " + all_Directories.Count);
         for (int i = 0; i < all_Directories.Count; i++)
         {
-            //   DirectoryInfo directory = new DirectoryInfo(all_Directories[i]);
-            //   Debug.Log("Directory Properties : " + directory.Name + "----------" + directory.FullName);
             newFiles.AddRange(Directory.GetFiles(all_Directories[i], "*.mp3", SearchOption.AllDirectories).ToList());
-            //  newFiles.AddRange(Directory.GetFiles(directory.FullName, "*.wav", SearchOption.AllDirectories).ToList()); if we need wav file to play as well
         }
-
-        Debug.Log("files count:" + newFiles.Count);
-        int length = newFiles.Count;
-        Debug.Log("length" + length);
-        if (length > 0)
+        string fileName = "MusicNames.dat";
+        string filePath = Path.Combine(myPath, fileName);
+        if(!File.Exists(filePath))
         {
-            audioClips = new List<AudioClip>(length);
-            listings = new GameObject[length];
+            File.Create(filePath);
+        }
+        FileStream fileStream = new FileStream(filePath, FileMode.OpenOrCreate,FileAccess.Write);
+        BinaryFormatter binaryFormatter = new BinaryFormatter();
+        binaryFormatter.Serialize(fileStream, newFiles);
+        fileStream.Close();
+        PlayerPrefs.SetString("MusicFolderPath", filePath);
+        UpdateMusicLibrary(newFiles);
+    }
 
-            for (int i = 0; i < length; i++)
+    private async void UpdateMusicLibrary(List<string> musicDirectories)
+    {              
+        ListViewItemModel[] demoData = new ListViewItemModel[musicDirectories.Count];
+        listViewItemPool.SetUpPool(musicDirectories.Count);
+        //Debug.Log("length" + musicDirectories.Count+ "  "+ demoData.Length);
+        if (musicDirectories.Count > 0)
+        {
+            audioClips = new List<AudioClip>(musicDirectories.Count);           
+            for (int i = 0; i < musicDirectories.Count; i++)
             {
-                FileInfo file = new FileInfo(newFiles[i]);
-                Debug.Log("all files name " + file.Name);
-                if (!(file.FullName.Contains("wav") || file.FullName.Contains("mp3")))
-                    continue;
-                Debug.Log("main file name: " + newFiles[i]);
+                FileInfo file = new FileInfo(musicDirectories[i]);
                 AudioClip clip = await LoadClip("file:///" + file.FullName);
                 audioClips.Add(clip);
-                audioClips[i].name = file.Name;
-                Debug.Log("download complete" + audioClips[i].name.ToString());
-                songNumber++;
-                GameObject obj = Instantiate(listingPrefab);
-                obj.GetComponent<ListObject_Main>().songName.text = file.Name;
-                obj.transform.SetParent(listingsParent);
-                obj.name = file.Name;
-                obj.GetComponent<RectTransform>().localScale = Vector3.one;
-                listings[i] = obj;
-                Debug.Log("song Name: " + audioClips[i].name);
-
+                audioClips[i].name = file.Name;               
+                demoData[i] = new ListViewItemModel(file.Name,i+1);                            
+                Debug.Log("song Name: "+i+"  " + audioClips[i].name);
             }
             audioSource.clip = audioClips[index];
             songName.text = audioClips[index].name;
+            pooledListView.Setup(demoData);
         }
+        Debug.Log("length");
         loadingPopup.SetActive(false);
     }
 
@@ -362,8 +359,6 @@ public class SoundManager : MonoBehaviour
                 break;
             }
         }
-
-
     }
 
     public void playMusicBtn()
@@ -373,7 +368,6 @@ public class SoundManager : MonoBehaviour
 
     public void play()
     {
-
         Play_Button.SetActive(false);
         Pause_Button.SetActive(true);
 
@@ -389,21 +383,17 @@ public class SoundManager : MonoBehaviour
         if (currentTrack < 0)
             currentTrack = audioClips.Count - 1;
         //  audioSource.Play();
-        StartCoroutine("waitformusic");
+        StartCoroutine(waitformusic());
     }
 
     IEnumerator waitformusic()
     {
-
-
         while (audioSource.isPlaying)
         {
-
             songName.text = audioSource.clip.name;
             playTime = (int)audioSource.time;
             yield return null;
         }
-
         next();
     }
 
@@ -429,7 +419,6 @@ public class SoundManager : MonoBehaviour
                 {
                     highestBass = spectrum[i];
                 }
-
             }
             //  gameObject.GetComponent<BloomOptimized>().threshold = highestBass;
         }
@@ -439,11 +428,11 @@ public class SoundManager : MonoBehaviour
 
     public void playMine(int value)
     {
+        Play_Button.SetActive(false);
+        Pause_Button.SetActive(true);
         audioSource.Stop();
-
         audioSource.clip = audioClips[value];
         audioSource.Play();
-
     }
 
     public void next()
@@ -457,7 +446,7 @@ public class SoundManager : MonoBehaviour
 
         // show title
 
-        StartCoroutine("waitformusic");
+        StartCoroutine(waitformusic());
     }
 
     public void previous()
@@ -471,18 +460,17 @@ public class SoundManager : MonoBehaviour
 
         // show title
 
-        StartCoroutine("waitformusic");
+        StartCoroutine(waitformusic());
     }
 
     public void pause()
     {
-
         Play_Button.SetActive(true);
         Pause_Button.SetActive(false);
 
         audioSource.Pause();
         isPaused = true;
-        StopCoroutine("waitformusic");
+        StopCoroutine(waitformusic());
     }
 
     public void mute()
@@ -494,8 +482,6 @@ public class SoundManager : MonoBehaviour
 
     public void unmute()
     {
-
-
         Mute_Button.SetActive(true);
         Unmute_Button.SetActive(false);
         audioSource.mute = true;
@@ -565,11 +551,7 @@ public class SoundManager : MonoBehaviour
     {
         Loop_Button.SetActive(true);
         Unloop_Button.SetActive(false);
-
         audioSource.loop = true;
     }
-
-
-
 }
 
